@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agri-Tech: AI-Driven Precision Agriculture Platform</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Segoe UI', sans-serif; background:#f0f4f8; padding:20px; color:#333; }
+    h1 { color:#2d6a4f; margin-bottom:20px; }
+    button { cursor:pointer; background:#2d6a4f; color:#fff; border:none; border-radius:5px; padding:8px 15px; font-size:1rem; transition:0.3s; }
+    button:hover { background:#1b4332; }
+    input[type=file], input[type=text] { padding:5px; border-radius:5px; border:1px solid #ccc; font-size:1rem; }
+    .container { max-width:900px; margin:auto; display:flex; flex-direction:column; gap:20px; }
+    .card { background:#fff; padding:15px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+    #heatmap { max-width:100%; border-radius:10px; margin-top:10px; }
+    #hotspotsList { list-style:decimal inside; }
+    pre { background:#f4f4f4; padding:10px; border-radius:5px; max-height:300px; overflow-y:auto; }
+    .hidden { display:none; }
+    .flex-row { display:flex; gap:10px; align-items:center; margin-top:5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>NDVI Analyzer Dashboard</h1>
+
+    
+    <div class="card">
+      <h2>Upload NDVI Image</h2>
+      <div class="flex-row">
+        <input type="file" id="fileInput" accept="image/*">
+        <button id="analyzeBtn">Analyze</button>
+      </div>
+    </div>
+
+    
+    <div class="card hidden" id="resultArea">
+      <h2>Analysis Summary</h2>
+      <div id="summary"></div>
+      <h3>Hotspots</h3>
+      <ul id="hotspotsList"></ul>
+      <h3>Heatmap</h3>
+      <img id="heatmap" alt="NDVI Heatmap">
+      <h3>Full JSON Result</h3>
+      <pre id="result"></pre>
+    </div>
+
+    
+    <div class="card">
+      <h2>Get Weather Info</h2>
+      <div class="flex-row">
+        <input type="text" id="latInput" placeholder="Latitude">
+        <input type="text" id="lonInput" placeholder="Longitude">
+        <button id="weatherBtn">Get Weather</button>
+      </div>
+      <pre id="weatherPre" class="hidden"></pre>
+    </div>
+  </div>
+
+  <script>
+    
+    const API_ROOT = "http://192.168.0.106:5000";
+
+    
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const fileInput = document.getElementById("fileInput");
+    const summaryDiv = document.getElementById("summary");
+    const hotspotsList = document.getElementById("hotspotsList");
+    const heatmapImg = document.getElementById("heatmap");
+    const resultPre = document.getElementById("result");
+    const resultArea = document.getElementById("resultArea");
+
+    analyzeBtn.addEventListener("click", async () => {
+      if (!fileInput.files.length) { alert("Select an image first!"); return; }
+
+      const formData = new FormData();
+      formData.append("image", fileInput.files[0]);
+
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = "Analyzing...";
+
+      try {
+        const res = await fetch(`${API_ROOT}/analyze`, { method: "POST", body: formData });
+        
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Server error: ${res.status}\n${text}`);
+        }
+
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        resultArea.classList.remove("hidden");
+        summaryDiv.innerHTML = `
+          <p><strong>Overall Health:</strong> ${data.health.overall_health}</p>
+          <p><strong>Mean NDVI:</strong> ${data.health.mean_ndvi.toFixed(3)}</p>
+          <p><strong>Percent Poor:</strong> ${(data.health.pct_poor*100).toFixed(1)}%</p>
+        `;
+
+        hotspotsList.innerHTML = "";
+        (data.hotspots || []).slice(0,5).forEach((h, idx) => {
+          const li = document.createElement("li");
+          li.textContent = `#${idx+1} risk=${h.risk_score} mean_ndvi=${h.mean_ndvi.toFixed(3)} area=${Math.round(h.area)}`;
+          hotspotsList.appendChild(li);
+        });
+
+        if (data.heatmap_base64) heatmapImg.src = "data:image/png;base64," + data.heatmap_base64;
+        resultPre.textContent = JSON.stringify(data, null, 2);
+
+      } catch(e) {
+        alert("Analysis failed: " + e.message);
+        console.error(e);
+      } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = "Analyze";
+      }
+    });
+
+    
+    const weatherBtn = document.getElementById("weatherBtn");
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
+    const weatherPre = document.getElementById("weatherPre");
+
+    weatherBtn.addEventListener("click", async () => {
+      const lat = latInput.value.trim();
+      const lon = lonInput.value.trim();
+      if (!lat || !lon) { alert("Enter latitude and longitude!"); return; }
+
+      weatherBtn.disabled = true;
+      weatherBtn.textContent = "Fetching...";
+
+      try {
+        const res = await fetch(`${API_ROOT}/weather?lat=${lat}&lon=${lon}`);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Server error: ${res.status}\n${text}`);
+        }
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        weatherPre.textContent = JSON.stringify(data, null, 2);
+        weatherPre.classList.remove("hidden");
+
+      } catch(e) {
+        alert("Weather fetch failed: " + e.message);
+        console.error(e);
+      } finally {
+        weatherBtn.disabled = false;
+        weatherBtn.textContent = "Get Weather";
+      }
+    });
+  </script>
+</body>
+</html>
